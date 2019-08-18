@@ -9,25 +9,29 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import library.LeakyBucket;
+import library.RateLimiter;
+import library.TokenBucket;
 
 public class RateLimitTest {
 	public static final long MB_ = 1024 * 1024L;
-	public static LeakyBucket lb_;
+	public static RateLimiter limiter_;
 	public static void main(String[] args) {
-		lb_ = new LeakyBucket(450 * MB_);
-		try {
+		limiter_ = new TokenBucket(450 * MB_);
+		try
+		{
 			Timer timer = new Timer();
 			timer.schedule(new Metrics(), 0, 1000);
 			ExecutorService es = Executors.newFixedThreadPool(64);
 			for (int i=0;i<64;i++)
-				es.execute(new Worker(lb_, 1 * 60 * 1000));
+				es.execute(new Worker(limiter_, 1 * 60 * 1000));
 			es.awaitTermination(2, TimeUnit.MINUTES);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
+		}
+		catch (InterruptedException e)
+		{
 			e.printStackTrace();
 		}
 		System.out.println("Shut down test.");
-	}	
+	}
 }
 
 class Metrics extends TimerTask
@@ -43,7 +47,6 @@ class Metrics extends TimerTask
 		aggregateTotal_.lazySet(0);
 		System.out.println("Thru rate:" + rateThru / RateLimitTest.MB_ + "MB/s");
 		System.out.println("Total rate:" + rateTotal / RateLimitTest.MB_ + "MB/s\n");
-		System.out.println("lb cur allowed:" + RateLimitTest.lb_.allowSize_ / RateLimitTest.MB_);
 	}
 	
 	public static void recordThru(long dataSize)
@@ -62,13 +65,13 @@ class Metrics extends TimerTask
 class Worker implements Runnable
 {
 	private static Random random_ = new Random();
-	private LeakyBucket lb_;
+	private RateLimiter limiter_;
 	private long startTime_;
 	private long runTime_;
-	public Worker(LeakyBucket lb, long runTime)
+	public Worker(RateLimiter limiter, long runTime)
 	{
 		startTime_ = System.currentTimeMillis();
-		lb_ = lb;
+		limiter_ = limiter;
 		runTime_ = runTime;
 	}
 	
@@ -81,13 +84,12 @@ class Worker implements Runnable
 				long dataSize = Math.abs(random_.nextLong()) % (100 * RateLimitTest.MB_);
 
 				Thread.sleep(Math.abs(random_.nextInt()) % 1000);
-
-				if (lb_.allow(dataSize))
+				
+				if (limiter_.ingest(dataSize))
 					Metrics.recordThru(dataSize);
 				Metrics.recordTotal(dataSize);
 			}
 		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		System.out.println("thread id:" + Thread.currentThread().getId() + " end.");
